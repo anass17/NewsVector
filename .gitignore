@@ -1,2 +1,4 @@
 # Size of files is large
 /data/embeddings
+/data/chromaDB
+/src/venv
