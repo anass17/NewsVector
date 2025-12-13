@@ -2,4 +2,8 @@
 /data/embeddings
 /data/chromaDB
 /src/venv
-/models
+/models/*.pkl
+/airflow/env
+/airflow/dags/__pycache__
+.env
+/logs
