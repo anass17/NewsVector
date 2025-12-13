@@ -1,0 +1,89 @@
+version: '3.9'
+
+x-airflow-common:
+  &airflow-common
+  build: .
+  env_file:
+    - .env
+  environment:
+    &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW_UID: ${AIRFLOW_UID:-50000}
+    # ---------------------------------------------------------
+    # 1. AJOUT DE LA CLÉ SECRÈTE (OBLIGATOIRE POUR ÉVITER L'ERREUR 403)
+    # ---------------------------------------------------------
+    AIRFLOW__WEBSERVER__SECRET_KEY: "votre_cle_secrete_tres_longue_et_aleatoire_fixe"
+  volumes:
+    # Les volumes sont CRUCIAUX ici : ils font le pont entre Docker et votre Windows
+    - ./airflow/dags:/opt/airflow/dags
+    - ./data:/opt/airflow/data
+    - ./models:/opt/airflow/models
+    - ./data/chromaDB:/opt/airflow/chroma_db
+    - ./data/metadata:/opt/airflow/metadatas
+    - ./app:/opt/airflow/app
+    - ./notebooks:/opt/airflow/notebooks
+    # ---------------------------------------------------------
+    # 2. AJOUT DU VOLUME LOGS (POUR QUE LE WEBSERVER LISSE LES FICHIERS)
+    # ---------------------------------------------------------
+    - ./logs:/opt/airflow/logs
+  depends_on:
+    &airflow-common-depends-on
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 5
+    restart: always
+
+  airflow-init:
+    <<: *airflow-common
+    command: version
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_MIGRATE: 'true'
+      _AIRFLOW_WWW_USER_CREATE: 'true'
+      _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-admin}
+      _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-admin}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 30s
+      retries: 5
+    restart: always
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    restart: always
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+volumes:
+  postgres-db-volume:
